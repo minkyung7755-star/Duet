@@ -1182,7 +1182,7 @@ input[type="date"].modal-input { display: block; width: 100%; }
       <span>총 누적 자산 수정</span>
     </div>
     <div style="font-size:12px;color:var(--text2);margin-bottom:12px;line-height:1.6;">
-      거래 기반 저축 합계에 더해지는 추가 금액이에요.<br>가계부 시작 전 이미 모아둔 자산을 입력하세요.
+      각 항목의 수동 입력 금액 외에 추가로 더할 금액이에요.<br>계산식: 거래 저축 합 + 항목별 입력 금액 + 여기 입력값
     </div>
     <div class="modal-field">
       <div class="modal-label">추가 자산 (₩)</div>
@@ -1941,8 +1941,9 @@ function renderAssets() {
   const monthSavingTx = txOfMonth(currentYear, currentMonth)
     .filter(t => t.type==='expense' && t.cat==='저축');
 
-  // 총 누적 = 거래 기반 저축 합 + 수동 조정값
-  const displayTotal = totalSaving + totalAssetOffset;
+  // 총 누적 = 거래 기반 저축 합 + 각 항목 수동 입력 합 + 수동 조정값
+  const totalManual = assetItems.reduce((a, item) => a + (item.manualTotal || 0), 0);
+  const displayTotal = totalSaving + totalManual + totalAssetOffset;
   document.getElementById('a-total').textContent = fmt(displayTotal);
   document.getElementById('a-month').textContent = fmt(saving);
 
@@ -2335,7 +2336,8 @@ function budgetModalSave() {
     catPlan[_budgetEditCat] = newPlan;
   }
   budgetModalClose();
-  saveData(); renderBudget();
+  saveData(); if (coupleId) syncSettingsUp();
+  renderBudget();
   renderChips('exp');
   toast('✓ ' + newName + ' 수정됐어요');
 }
@@ -2556,6 +2558,7 @@ function saveAssetModal() {
   }
   closeAssetModal();
   saveData();
+  if (coupleId) syncSettingsUp(); // Supabase 동기화
   renderAssets();
   toast(`✓ "${name}" 항목이 ${_assetEditIdx >= 0 ? '수정' : '추가'}됐어요`);
 }
@@ -2705,6 +2708,7 @@ function closeTotalAssetModal() {
 function saveTotalAsset() {
   totalAssetOffset = parseInt(document.getElementById('total-asset-input').value) || 0;
   saveData();
+  if (coupleId) syncSettingsUp();
   closeTotalAssetModal();
   renderAssets();
   toast('✓ 총 누적 자산이 저장됐어요');
