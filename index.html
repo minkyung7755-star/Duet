@@ -697,6 +697,10 @@ input[type="date"].modal-input { display: block; width: 100%; }
           <div style="font-size:11px;font-weight:600;color:#1B4D1C;margin-bottom:10px;">분석 결과 — 수정 후 추가하세요</div>
           <div style="display:flex;flex-direction:column;gap:8px;">
             <div>
+              <div class="form-label">날짜</div>
+              <input type="date" id="ai-edit-date" style="width:100%;font-size:13px;padding:7px 10px;border:1px solid #C2DFA8;border-radius:var(--radius);background:#fff;outline:none;-webkit-appearance:none;">
+            </div>
+            <div>
               <div class="form-label">금액 (₩)</div>
               <input type="number" id="ai-edit-amount" style="width:100%;font-size:13px;padding:7px 10px;border:1px solid #C2DFA8;border-radius:var(--radius);background:#fff;outline:none;">
             </div>
@@ -1797,6 +1801,34 @@ function parseAI() {
   // * 마스킹 기호 제거
   placeGuess = placeGuess.replace(/\*/g,'').trim() || '카드 결제';
 
+  // ── 날짜 파싱 ──
+  let dateGuess = `${currentYear}-${String(currentMonth).padStart(2,'0')}-${String(new Date().getDate()).padStart(2,'0')}`;
+  // 패턴 1: MM/DD (예: 06/01, 05/31)
+  const dateM1 = text.match(/(\d{2})\/(\d{2})/);
+  if (dateM1) {
+    const mo = parseInt(dateM1[1]);
+    const dy = parseInt(dateM1[2]);
+    if (mo >= 1 && mo <= 12 && dy >= 1 && dy <= 31) {
+      const y = mo > new Date().getMonth() + 1 ? currentYear - 1 : currentYear;
+      dateGuess = `${y}-${String(mo).padStart(2,'0')}-${String(dy).padStart(2,'0')}`;
+    }
+  }
+  // 패턴 2: MM.DD (예: 06.01)
+  const dateM2 = text.match(/(\d{2})\.(\d{2})/);
+  if (!dateM1 && dateM2) {
+    const mo = parseInt(dateM2[1]);
+    const dy = parseInt(dateM2[2]);
+    if (mo >= 1 && mo <= 12 && dy >= 1 && dy <= 31) {
+      const y = mo > new Date().getMonth() + 1 ? currentYear - 1 : currentYear;
+      dateGuess = `${y}-${String(mo).padStart(2,'0')}-${String(dy).padStart(2,'0')}`;
+    }
+  }
+  // 패턴 3: YYYY-MM-DD or YYYY.MM.DD
+  const dateM3 = text.match(/20(\d{2})[-.](\d{2})[-.](\d{2})/);
+  if (dateM3) {
+    dateGuess = `20${dateM3[1]}-${dateM3[2]}-${dateM3[3]}`;
+  }
+
   // 카테고리 추론
   const catGuess =
     /커피|카페|라떼|아메리카|메가|빽다방|컴포즈/.test(text) ? '카페' :
@@ -1826,11 +1858,15 @@ function parseAI() {
   }
   for (const c of cards) { if (text.includes(c)) { cardGuess = c; break; } }
 
-  aiParsed = { amount: amt, desc: placeGuess, cat: catGuess, card: cardGuess };
+  aiParsed = { amount: amt, desc: placeGuess, cat: catGuess, card: cardGuess, date: dateGuess };
 
   // 편집 폼 채우기
   document.getElementById('ai-edit-amount').value = amt;
   document.getElementById('ai-edit-desc').value = placeGuess;
+
+  // 날짜 채우기
+  const aiDateEl = document.getElementById('ai-edit-date');
+  if (aiDateEl) aiDateEl.value = dateGuess;
 
   // 카테고리 select 채우기
   const catSel = document.getElementById('ai-edit-cat');
@@ -1855,10 +1891,11 @@ function confirmAI() {
   const desc = document.getElementById('ai-edit-desc').value.trim() || aiParsed.desc;
   const cat = document.getElementById('ai-edit-cat').value || aiParsed.cat;
   const card = document.getElementById('ai-edit-card').value || aiParsed.card;
+  const aiDateEl = document.getElementById('ai-edit-date');
+  const date = (aiDateEl && aiDateEl.value) ? aiDateEl.value : aiParsed.date;
 
   if (!amount) { toast('금액을 확인해주세요'); return; }
 
-  const date = `${currentYear}-${String(currentMonth).padStart(2,'0')}-${String(new Date().getDate()).padStart(2,'0')}`;
   transactions.push({ date, amount, desc, cat, card, person: currentPerson, type: 'expense' });
 
   document.getElementById('ai-text').value = '';
