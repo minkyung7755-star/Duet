@@ -3288,7 +3288,7 @@ function showConnectedUI() {
 async function syncTxUp(tx) {
   if (!coupleId) return;
   try {
-    await supa.from('transactions').insert({
+    const { data, error } = await supa.from('transactions').insert({
       couple_id: coupleId,
       tx_date: tx.date,
       amount: tx.amount,
@@ -3297,23 +3297,52 @@ async function syncTxUp(tx) {
       card: tx.card || '',
       person: tx.person,
       tx_type: tx.type
-    });
+    }).select().single();
+    if (!error && data) {
+      // 로컬 거래에 _id 저장
+      tx._id = data.id;
+      saveData();
+    }
   } catch(e) { console.warn('sync up 실패:', e); }
 }
 
-// ── 거래 전체 내려받기 ──
+// ── 거래 전체 내려받기 (로컬과 병합) ──
 async function syncTransactionsDown() {
   if (!coupleId) return;
   try {
     const { data, error } = await supa.from('transactions')
       .select('*').eq('couple_id', coupleId).order('tx_date', { ascending: false });
     if (error) throw error;
-    const synced = data.map(r => ({
+
+    const fromServer = data.map(r => ({
       date: r.tx_date, amount: r.amount, desc: r.tx_desc,
       cat: r.cat, card: r.card, person: r.person, type: r.tx_type,
       _id: r.id
     }));
-    transactions.splice(0, transactions.length, ...synced);
+
+    // 로컬에만 있는 거래 (Supabase에 없는 것) → 서버에 올리기
+    const serverIds = new Set(data.map(r => r.id));
+    const localOnly = transactions.filter(t => t._id && !serverIds.has(t._id));
+    const noId = transactions.filter(t => !t._id); // _id 없는 로컬 거래
+
+    // 서버 데이터로 교체
+    transactions.splice(0, transactions.length, ...fromServer);
+
+    // _id 없는 로컬 거래는 서버에 올리고 병합
+    for (const tx of noId) {
+      try {
+        const { data: inserted } = await supa.from('transactions').insert({
+          couple_id: coupleId,
+          tx_date: tx.date, amount: tx.amount, tx_desc: tx.desc,
+          cat: tx.cat, card: tx.card || '', person: tx.person, tx_type: tx.type
+        }).select().single();
+        if (inserted) {
+          tx._id = inserted.id;
+          transactions.push(tx);
+        }
+      } catch(e) { transactions.push(tx); }
+    }
+
     saveData();
   } catch(e) { console.warn('sync down 실패:', e); }
 }
