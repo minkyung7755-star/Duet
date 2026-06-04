@@ -2414,9 +2414,10 @@ function closeInitBalModal() {
   document.getElementById('init-bal-modal').classList.remove('open');
 }
 function saveInitBal() {
-  const val = parseInt(document.getElementById('init-bal-input').value) || 0;
-  initBalance = val;
+  const raw = document.getElementById('init-bal-input').value;
+  initBalance = raw === '' ? 0 : (parseInt(raw) || 0);
   saveData();
+  if (coupleId) syncSettingsUp();
   closeInitBalModal();
   renderDashboard();
   toast('✓ 초기 잔고가 저장됐어요');
