@@ -2495,22 +2495,37 @@ function applyUserNames() {
 }
 
 function editUserName(which) {
-  const cur = which === 1 ? userName1 : userName2;
+  // which=1: 내 이름, which=2: 파트너 이름
+  // myName 기준으로 내가 userName1인지 userName2인지 판단
+  const iAmUser1 = !myName || myName === userName1;
+  const myIdx = iAmUser1 ? 1 : 2;
+  const partnerIdx = iAmUser1 ? 2 : 1;
+  const targetIdx = which === 1 ? myIdx : partnerIdx;
+
+  const cur = targetIdx === 1 ? userName1 : userName2;
   const label = which === 1 ? '내 이름' : '파트너 이름';
+
   showPrompt(label + ' 수정', cur, async (newName) => {
     if (!newName) return;
-    if (which === 1) {
-      transactions.forEach(t => { if (t.person === userName1) t.person = newName; });
+    const oldName = targetIdx === 1 ? userName1 : userName2;
+    // 거래 내역 person 업데이트
+    transactions.forEach(t => { if (t.person === oldName) t.person = newName; });
+    if (targetIdx === 1) {
       userName1 = newName;
-      currentPerson = userName1;
     } else {
-      transactions.forEach(t => { if (t.person === userName2) t.person = newName; });
       userName2 = newName;
     }
+    // 내 이름 수정이면 myName도 업데이트
+    if (which === 1) {
+      myName = newName;
+      currentPerson = newName;
+      localStorage.setItem('duet_my_name', myName);
+    }
     applyUserNames();
+    showConnectedUI();
     saveData();
     renderSettings();
-    // Supabase에 이름 동기화
+    renderTx();
     if (coupleId) await syncSettingsUp();
     toast('✓ 이름이 "' + newName + '"으로 변경됐어요');
   });
@@ -3352,7 +3367,10 @@ async function restoreCouple() {
   if (!savedId || !savedCode) return;
   coupleId = savedId;
   myCode = savedCode;
-  if (savedMyName) myName = savedMyName;
+  if (savedMyName) {
+    myName = savedMyName;
+    currentPerson = myName; // 거래 입력 기본값
+  }
   document.getElementById('my-code').textContent = savedCode;
   await syncSettingsDown();
   await syncTransactionsDown();
