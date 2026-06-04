@@ -2344,17 +2344,20 @@ function budgetModalSave() {
 function budgetDelete() {
   if (!_budgetEditCat) return;
   const cat = _budgetEditCat;
-  showConfirm('항목 삭제', '"' + cat + '" 항목을 삭제할까요?', '삭제', () => {
-    const idx = budgetOrder.indexOf(cat);
-    if (idx >= 0) budgetOrder.splice(idx, 1);
-    const ei = expCats.indexOf(cat);
-    if (ei >= 0) expCats.splice(ei, 1);
-    delete catPlan[cat];
-    budgetModalClose();
-    saveData(); renderBudget();
-    renderChips('exp');
-    toast(cat + ' 항목이 삭제됐어요');
-  });
+  budgetModalClose();
+  setTimeout(() => {
+    showConfirm('항목 삭제', '"' + cat + '" 항목을 삭제할까요?', '삭제', () => {
+      const idx = budgetOrder.indexOf(cat);
+      if (idx >= 0) budgetOrder.splice(idx, 1);
+      const ei = expCats.indexOf(cat);
+      if (ei >= 0) expCats.splice(ei, 1);
+      delete catPlan[cat];
+      saveData(); if (coupleId) syncSettingsUp();
+      renderBudget();
+      renderChips('exp');
+      toast(cat + ' 항목이 삭제됐어요');
+    });
+  }, 200);
 }
 document.getElementById('b-modal').addEventListener('click', e => {
   if (e.target === e.currentTarget) budgetModalClose();
@@ -2454,19 +2457,23 @@ function txModalDelete() {
   if (_txEditIdx < 0) return;
   const t = transactions[_txEditIdx];
   const idx = _txEditIdx;
-  showConfirm('거래 삭제', '"' + t.desc + '" 거래를 삭제할까요?', '삭제', async () => {
-    const deletedId = t._id;
-    transactions.splice(idx, 1);
-    txModalClose();
-    saveData();
-    renderTx();
-    renderDashboard();
-    updateMonthUI();
-    toast('거래가 삭제됐어요');
-    if (coupleId && deletedId) {
-      await supa.from('transactions').delete().eq('id', deletedId);
-    }
-  });
+  // 모달 먼저 닫기
+  txModalClose();
+  // 그 다음 확인창
+  setTimeout(() => {
+    showConfirm('거래 삭제', '"' + t.desc + '" 거래를 삭제할까요?', '삭제', async () => {
+      const deletedId = t._id;
+      transactions.splice(idx, 1);
+      saveData();
+      renderTx();
+      renderDashboard();
+      updateMonthUI();
+      toast('거래가 삭제됐어요');
+      if (coupleId && deletedId) {
+        await supa.from('transactions').delete().eq('id', deletedId);
+      }
+    });
+  }, 200);
 }
 document.getElementById('tx-modal').addEventListener('click', e => {
   if (e.target === e.currentTarget) txModalClose();
@@ -2567,13 +2574,16 @@ function deleteAssetItem() {
   if (_assetEditIdx < 0) return;
   const name = assetItems[_assetEditIdx].name;
   const aidx = _assetEditIdx;
-  showConfirm('항목 삭제', '"' + name + '" 항목을 삭제할까요?', '삭제', () => {
-    assetItems.splice(aidx, 1);
-    closeAssetModal();
-    saveData();
-    renderAssets();
-    toast('"' + name + '" 항목이 삭제됐어요');
-  });
+  closeAssetModal();
+  setTimeout(() => {
+    showConfirm('항목 삭제', '"' + name + '" 항목을 삭제할까요?', '삭제', () => {
+      assetItems.splice(aidx, 1);
+      saveData();
+      if (coupleId) syncSettingsUp();
+      renderAssets();
+      toast('"' + name + '" 항목이 삭제됐어요');
+    });
+  }, 200);
 }
 
 document.getElementById('asset-modal').addEventListener('click', e => {
