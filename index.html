@@ -671,11 +671,12 @@ input[type="date"].modal-input { display: block; width: 100%; }
       <div class="card-block-body" style="padding:10px 14px 12px;">
         <div class="ai-hint">영수증이나 카드 매출전표 사진을 올리면 AI가 자동으로 인식해요</div>
         <div style="margin-top:8px;">
-          <label for="receipt-input" style="display:flex;align-items:center;justify-content:center;gap:8px;padding:14px;border:1.5px dashed var(--border);border-radius:var(--radius);cursor:pointer;background:var(--bg2);transition:background .15s;" id="receipt-drop-zone">
-            <i class="ti ti-photo-up" style="font-size:20px;color:var(--primary);"></i>
-            <span style="font-size:13px;color:var(--text2);">사진을 탭하여 선택하거나 끌어다 놓으세요</span>
+          <label for="receipt-input" style="display:flex;flex-direction:column;align-items:center;justify-content:center;gap:6px;padding:16px;border:1.5px dashed var(--border);border-radius:var(--radius);cursor:pointer;background:var(--bg2);transition:background .15s;" id="receipt-drop-zone">
+            <i class="ti ti-photo-up" style="font-size:24px;color:var(--primary);"></i>
+            <span style="font-size:13px;color:var(--text1);font-weight:500;">사진 선택하기</span>
+            <span style="font-size:11px;color:var(--text2);">📱 갤러리에서 선택 · 💻 파일 첨부 또는 드래그</span>
           </label>
-          <input type="file" id="receipt-input" accept="image/*" capture="environment" style="display:none;" onchange="analyzeReceipt(this)">
+          <input type="file" id="receipt-input" accept="image/*" style="display:none;" onchange="analyzeReceipt(this)">
         </div>
         <div id="receipt-preview" style="display:none;margin-top:8px;text-align:center;">
           <img id="receipt-img" src="" alt="영수증 미리보기" style="max-width:100%;max-height:200px;border-radius:var(--radius);border:0.5px solid var(--border);">
@@ -3139,8 +3140,20 @@ async function analyzeReceipt(input) {
             role: 'user',
             content: [
               { type:'image', source:{ type:'base64', media_type:mediaType, data:base64 } },
-              { type:'text', text:`이 영수증 또는 카드 매출전표를 분석해서 다음 정보를 JSON으로만 답해주세요 (설명 없이 JSON만):
-{"amount": 숫자(원화금액), "desc": "가게명 또는 사용처", "cat": "카테고리(공용식비/생활잡비/교통비/카페/저축/기타 중 하나)"}` }
+              { type:'text', text:`이 이미지는 영수증, 카드 매출전표, 또는 토스/카드사 앱의 거래 상세 화면이에요.
+다음 정보를 추출해서 JSON으로만 답해주세요 (설명 없이 JSON만):
+{
+  "amount": 숫자(원화 금액, 앞에 - 기호 있으면 절댓값으로),
+  "desc": "가게명 또는 사용처 (예: 쿠팡, 스타벅스, 이케아)",
+  "cat": "카테고리 (공용식비/생활잡비/교통비/카페/저축/통신비/의료/쇼핑/기타 중 하나)",
+  "date": "YYYY-MM-DD 형식 날짜 (없으면 null)"
+}
+
+참고:
+- 토스 앱 화면: '사용처' 또는 가게 이름이 상단에 크게 표시됨
+- 카드 매출전표: 상호명, 승인금액 추출
+- 영수증: 상호명, 합계금액 추출
+- 날짜는 '결제일시', '승인일시', '거래일' 등에서 추출` }
             ]
           }]
         })
@@ -3152,11 +3165,19 @@ async function analyzeReceipt(input) {
       if (!jsonMatch) throw new Error('분석 결과를 읽을 수 없어요');
 
       const parsed = JSON.parse(jsonMatch[0]);
-      aiParsed = { amount: parsed.amount||0, desc: parsed.desc||'영수증', cat: parsed.cat||'기타', card: cards[0] };
+      // 날짜 처리
+      let parsedDate = parsed.date || null;
+      if (!parsedDate) {
+        parsedDate = `${currentYear}-${String(currentMonth).padStart(2,'0')}-${String(new Date().getDate()).padStart(2,'0')}`;
+      }
+      aiParsed = { amount: parsed.amount||0, desc: parsed.desc||'영수증', cat: parsed.cat||'기타', card: cards[0], date: parsedDate };
 
       // 분석 결과 폼에 채우기
       document.getElementById('ai-edit-amount').value = parsed.amount||0;
       document.getElementById('ai-edit-desc').value = parsed.desc||'영수증';
+      // 날짜 채우기
+      const aiDateEl = document.getElementById('ai-edit-date');
+      if (aiDateEl) aiDateEl.value = parsedDate;
       document.getElementById('ai-edit-cat').innerHTML = expCats.map(c=>
         `<option value="${c}" ${c===parsed.cat?'selected':''}>${c}</option>`).join('');
       document.getElementById('ai-edit-card').innerHTML = cards.map(c=>
