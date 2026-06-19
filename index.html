@@ -1738,14 +1738,14 @@ function manageAddCard() {
   renderManageChips('card'); renderCardSelect();
   toast('✓ ' + name + ' 추가됐어요');
 }
-function addTransaction() {
+async function addTransaction() {
   const date = document.getElementById('inp-date').value;
   const amount = parseInt(document.getElementById('inp-amount').value);
   const desc = document.getElementById('inp-desc').value.trim();
   const cat = document.getElementById('inp-cat').value;
   const card = document.getElementById('inp-card').value;
   if (!amount || !desc) { toast('금액과 설명을 입력해주세요'); return; }
-  const tx = {date,amount,desc,cat,card,person:currentPerson,type:currentType};
+  const tx = {date, amount, desc, cat, card, person: currentPerson, type: currentType};
   transactions.push(tx);
   document.getElementById('inp-amount').value = '';
   document.getElementById('inp-desc').value = '';
@@ -1753,8 +1753,8 @@ function addTransaction() {
   toast('✓ 거래가 추가됐어요');
   updateMonthUI();
   renderDashboard();
-  // Supabase 동기화
-  if (coupleId) syncTxUp(tx);
+  // Supabase에 즉시 업로드 (await로 완료 보장)
+  if (coupleId) await syncTxUp(tx);
 }
 
 // AI PARSE
@@ -1929,7 +1929,7 @@ function parseAI() {
   document.getElementById('ai-confirm-btn').style.display = 'inline-block';
 }
 
-function confirmAI() {
+async function confirmAI() {
   if (!aiParsed) return;
   // 편집된 값 가져오기
   const amount = parseInt(document.getElementById('ai-edit-amount').value) || 0;
@@ -1951,6 +1951,7 @@ function confirmAI() {
   saveData();
   updateMonthUI();
   renderDashboard();
+  if (coupleId) await syncTxUp(transactions[transactions.length - 1]);
 }
 
 // ── TRANSACTIONS ──
