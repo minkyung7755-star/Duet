@@ -3511,7 +3511,10 @@ function subscribeRealtime() {
         if (active?.id === 'tab-budget') renderBudget();
         toast('📱 ' + r.person + ' 거래가 수정됐어요');
       }
-    }) (payload) => {
+    })
+    .on('postgres_changes', {
+      event: 'DELETE', schema: 'public', table: 'transactions'
+    }, (payload) => {
       const idx = transactions.findIndex(t => t._id === payload.old.id);
       if (idx >= 0) {
         transactions.splice(idx, 1);
