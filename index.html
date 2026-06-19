@@ -3,9 +3,9 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
-<meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+<meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate, max-age=0">
 <meta http-equiv="Pragma" content="no-cache">
-<meta http-equiv="Expires" content="0">
+<meta http-equiv="Expires" content="-1">
 <title>Duet</title>
 
 <!-- ── PWA 설정 ── -->
@@ -2204,17 +2204,33 @@ function addCat(type) {
   saveData(); toast('✓ ' + name + ' 카테고리가 추가됐어요');
 }
 
-// ── SERVICE WORKER (PWA 오프라인) ──
+// ── 항상 최신 버전 강제 로드 ──
 if ('serviceWorker' in navigator) {
-  const swCode = `
-const CACHE='duet-v${Date.now()}';
-const EXT=['https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@3.19.0/dist/tabler-icons.min.css','https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js'];
-self.addEventListener('install',e=>{e.waitUntil(caches.open(CACHE).then(c=>c.addAll(EXT)).catch(()=>{}));self.skipWaiting();});
-self.addEventListener('activate',e=>{e.waitUntil(caches.keys().then(ks=>Promise.all(ks.filter(k=>k!==CACHE).map(k=>caches.delete(k)))));self.clients.claim();});
-self.addEventListener('fetch',e=>{e.respondWith(caches.match(e.request).then(r=>r||fetch(e.request).catch(()=>new Response('',{status:408}))));});
-  `;
-  const blob = new Blob([swCode], {type:'application/javascript'});
-  navigator.serviceWorker.register(URL.createObjectURL(blob)).catch(()=>{});
+  // 기존 Service Worker 전부 제거
+  navigator.serviceWorker.getRegistrations().then(regs => {
+    regs.forEach(reg => reg.unregister());
+  });
+  // 모든 캐시 삭제
+  if ('caches' in window) {
+    caches.keys().then(keys => {
+      keys.forEach(key => caches.delete(key));
+    });
+  }
+}
+
+// 홈화면 앱(standalone)에서 실행 중이면 주기적으로 새 버전 체크
+if (window.navigator.standalone) {
+  // 5분마다 새 버전 있으면 자동 새로고침
+  setInterval(() => {
+    fetch(window.location.href + '?v=' + Date.now(), { cache: 'no-store' })
+      .then(r => r.text())
+      .then(html => {
+        // 현재 파일과 다르면 새로고침
+        if (html.length !== document.documentElement.outerHTML.length) {
+          window.location.reload(true);
+        }
+      }).catch(() => {});
+  }, 5 * 60 * 1000); // 5분
 }
 
 // ── LOCAL STORAGE — 데이터 영구 저장 ──
