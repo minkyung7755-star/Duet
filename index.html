@@ -566,6 +566,16 @@ input[type="date"].modal-input { display: block; width: 100%; }
       </div>
     </div>
 
+    <!-- 카드별 사용 현황 -->
+    <div class="card-block">
+      <div class="card-block-header">
+        <span class="cb-title"><i class="ti ti-credit-card" style="font-size:13px;color:var(--primary);"></i>카드별 사용 현황</span>
+      </div>
+      <div class="card-block-body">
+        <div id="card-usage-list"></div>
+      </div>
+    </div>
+
     <!-- 월별 비교 차트 -->
     <div class="card-block">
       <div class="card-block-header">
@@ -1579,6 +1589,40 @@ function renderDashboard() {
   }, 50);
   renderMonthlyReport();
 
+  // 카드별 사용 현황
+  const cardUsageEl = document.getElementById('card-usage-list');
+  if (cardUsageEl) {
+    const cardUsage = {};
+    txOfMonth(currentYear, currentMonth)
+      .filter(t => t.type === 'expense')
+      .forEach(t => {
+        const key = t.card || '기타(계좌이체)';
+        cardUsage[key] = (cardUsage[key] || 0) + t.amount;
+      });
+
+    const sorted = Object.entries(cardUsage).sort((a,b) => b[1]-a[1]);
+    if (sorted.length === 0) {
+      cardUsageEl.innerHTML = '<div style="font-size:13px;color:var(--text2);padding:8px 0;">이번달 사용 내역이 없어요</div>';
+    } else {
+      const maxAmt = Math.max(...sorted.map(([,v]) => v), 1);
+      cardUsageEl.innerHTML = sorted.map(([card, amt]) => {
+        const pct = Math.min(100, (amt / maxAmt) * 100);
+        // 담당자 색상 구분
+        const color = card.includes(userName1) ? 'var(--primary)' :
+                      card.includes(userName2) ? '#D4537E' : 'var(--text2)';
+        return `<div style="display:flex;align-items:center;gap:8px;padding:7px 0;border-bottom:0.5px solid var(--border);">
+          <div style="flex:1;min-width:0;">
+            <div style="font-size:12px;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${card}</div>
+            <div style="height:3px;background:var(--bg2);border-radius:2px;margin-top:4px;">
+              <div style="height:100%;width:${pct}%;background:${color};border-radius:2px;"></div>
+            </div>
+          </div>
+          <div style="font-size:12px;font-weight:600;color:${color};white-space:nowrap;flex-shrink:0;">${fmt(amt)}</div>
+        </div>`;
+      }).join('');
+    }
+  }
+
   // Recent TX — 현재 월 기준
   const recent = document.getElementById('recent-tx');
   recent.innerHTML = '';
@@ -1991,10 +2035,14 @@ function renderAssets() {
   const list = document.getElementById('asset-list');
   list.innerHTML = '';
 
+  // 띄어쓰기 제거 비교 헬퍼
+  const normalize = str => str.replace(/\s/g,'').toLowerCase();
+
   assetItems.forEach((a, idx) => {
-    // 거래 기반 누적
+    const normName = normalize(a.name);
+    // 거래 기반 누적 (띄어쓰기 무시 매칭)
     const txAcc = allSavingTx
-      .filter(t => t.desc && t.desc.includes(a.name))
+      .filter(t => t.desc && normalize(t.desc).includes(normName))
       .reduce((sum,t) => sum+t.amount, 0);
 
     // 수동 입력 누적
@@ -2003,9 +2051,9 @@ function renderAssets() {
     // 합산 표시
     const displayAcc = txAcc + manualAmt;
 
-    // 이번달 거래
+    // 이번달 거래 (띄어쓰기 무시 매칭)
     const monthAcc = monthSavingTx
-      .filter(t => t.desc && t.desc.includes(a.name))
+      .filter(t => t.desc && normalize(t.desc).includes(normName))
       .reduce((sum,t) => sum+t.amount, 0);
 
     const ownerLabel = a.owner === userName1 ? userName1
@@ -2494,6 +2542,20 @@ function txModalSave() {
   renderTx();
   renderDashboard();
   toast('✓ 거래가 수정됐어요');
+  // Supabase 업데이트
+  if (coupleId && t._id) {
+    supa.from('transactions').update({
+      tx_date: t.date,
+      amount: t.amount,
+      tx_desc: t.desc,
+      cat: t.cat,
+      card: t.card,
+      person: t.person,
+      tx_type: t.type
+    }).eq('id', t._id).then(({ error }) => {
+      if (error) console.warn('거래 수정 동기화 실패:', error);
+    });
+  }
 }
 function txModalDelete() {
   if (_txEditIdx < 0) return;
@@ -3431,8 +3493,25 @@ function subscribeRealtime() {
       toast('📱 ' + r.person + '이(가) 추가: ' + r.tx_desc + ' ' + fmt(r.amount));
     })
     .on('postgres_changes', {
-      event: 'DELETE', schema: 'public', table: 'transactions'
+      event: 'UPDATE', schema: 'public', table: 'transactions'
     }, (payload) => {
+      const r = payload.new;
+      if (r.couple_id !== coupleId) return;
+      const idx = transactions.findIndex(t => t._id === r.id);
+      if (idx >= 0) {
+        transactions[idx] = {
+          ...transactions[idx],
+          date: r.tx_date, amount: r.amount, desc: r.tx_desc,
+          cat: r.cat, card: r.card, person: r.person, type: r.tx_type
+        };
+        saveData();
+        const active = document.querySelector('.tab.active');
+        if (active?.id === 'tab-dashboard') renderDashboard();
+        if (active?.id === 'tab-transactions') renderTx();
+        if (active?.id === 'tab-budget') renderBudget();
+        toast('📱 ' + r.person + ' 거래가 수정됐어요');
+      }
+    }) (payload) => {
       const idx = transactions.findIndex(t => t._id === payload.old.id);
       if (idx >= 0) {
         transactions.splice(idx, 1);
