@@ -2403,15 +2403,15 @@ function renderBudget() {
     row.dataset.cat = cat;
     row.innerHTML = `
       <div class="brow-dot"><div class="dot" style="background:${over?'var(--danger)':col};"></div></div>
-      <div class="brow-name">
-        <div class="brow-name-txt">${cat}</div>
+      <div class="brow-name" onclick="toggleCatAccordion('${cat}',this)" style="cursor:pointer;">
+        <div class="brow-name-txt">${cat} <span id="acc-arrow-${cat}" style="font-size:10px;color:var(--text2);">▶</span></div>
         <div class="brow-name-bar">
           <div class="brow-name-bar-fill" style="width:${barPct}%;background:${over?'var(--danger)':col};"></div>
         </div>
       </div>
       <div class="brow-num">
         <div class="plan-val-wrap">
-          <span class="${planClass}" onclick="budgetInlineStart(this,'${cat}')">${planDisplay}</span>
+          <span class="${planClass}" onclick="event.stopPropagation();budgetInlineStart(this,'${cat}')">${planDisplay}</span>
           <input class="plan-input-inline" type="number"
             onblur="budgetInlineEnd(this,'${cat}')"
             onkeydown="if(event.key==='Enter')this.blur();if(event.key==='Escape')budgetInlineCancel(this);">
@@ -2420,15 +2420,75 @@ function renderBudget() {
       <div class="brow-num"><span class="cur-val${over?' over':''}">${used > 0 ? fmt(used) : '—'}</span></div>
       <div class="brow-num">${remHtml}</div>
       <div class="brow-action">
-        <button class="brow-menu" onclick="budgetModalOpen('${cat}')" title="${cat} 수정" aria-label="${cat} 수정/삭제">
+        <button class="brow-menu" onclick="event.stopPropagation();budgetModalOpen('${cat}')" title="${cat} 수정" aria-label="${cat} 수정/삭제">
           <i class="ti ti-dots-vertical" aria-hidden="true"></i>
         </button>
       </div>`;
     body.appendChild(row);
+
+    // 아코디언 내역 컨테이너
+    const accordion = document.createElement('div');
+    accordion.id = `acc-${cat}`;
+    accordion.style.cssText = 'display:none;background:var(--bg2);border-bottom:0.5px solid var(--border);';
+    accordion.innerHTML = `<div id="acc-list-${cat}" style="padding:6px 12px 8px;"></div>`;
+    body.appendChild(accordion);
   });
 }
 
-// 인라인 편집
+// ── 지출항목 아코디언 ──
+let _openAccordion = null;
+
+function toggleCatAccordion(cat) {
+  const acc = document.getElementById('acc-' + cat);
+  const arrow = document.getElementById('acc-arrow-' + cat);
+  if (!acc) return;
+
+  const isOpen = acc.style.display !== 'none';
+
+  // 다른 열린 아코디언 닫기
+  if (_openAccordion && _openAccordion !== cat) {
+    const prev = document.getElementById('acc-' + _openAccordion);
+    const prevArrow = document.getElementById('acc-arrow-' + _openAccordion);
+    if (prev) prev.style.display = 'none';
+    if (prevArrow) prevArrow.textContent = '▶';
+  }
+
+  if (isOpen) {
+    acc.style.display = 'none';
+    if (arrow) arrow.textContent = '▶';
+    _openAccordion = null;
+  } else {
+    // 해당 카테고리 거래 내역 채우기
+    const listEl = document.getElementById('acc-list-' + cat);
+    const catTx = txOfMonth(currentYear, currentMonth)
+      .filter(t => t.cat === cat && t.type === 'expense')
+      .sort((a,b) => b.date.localeCompare(a.date));
+
+    if (catTx.length === 0) {
+      listEl.innerHTML = '<div style="font-size:12px;color:var(--text2);padding:6px 0;">이번달 내역이 없어요</div>';
+    } else {
+      listEl.innerHTML = catTx.map(t => `
+        <div style="display:flex;justify-content:space-between;align-items:center;padding:6px 0;border-bottom:0.5px solid var(--border);">
+          <div>
+            <div style="font-size:12px;font-weight:500;">${t.desc}</div>
+            <div style="font-size:10px;color:var(--text2);margin-top:1px;">${t.date} · ${t.card || ''} · ${t.person}</div>
+          </div>
+          <div style="font-size:12px;font-weight:600;color:var(--danger);white-space:nowrap;margin-left:8px;">−${fmt(t.amount)}</div>
+        </div>`).join('') +
+        `<div style="display:flex;justify-content:space-between;padding:7px 0 2px;font-size:12px;font-weight:600;">
+          <span style="color:var(--text2);">합계</span>
+          <span style="color:var(--danger);">−${fmt(catTx.reduce((a,t)=>a+t.amount,0))}</span>
+        </div>`;
+    }
+
+    acc.style.display = 'block';
+    if (arrow) arrow.textContent = '▼';
+    _openAccordion = cat;
+
+    // 부드럽게 스크롤
+    setTimeout(() => acc.scrollIntoView({ behavior:'smooth', block:'nearest' }), 50);
+  }
+}
 function budgetInlineStart(span, cat) {
   const wrap = span.closest('.plan-val-wrap');
   const inp = wrap.querySelector('.plan-input-inline');
