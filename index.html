@@ -241,6 +241,8 @@ textarea.ai-input { height: 60px; resize: vertical; }
   font-size: 13px; font-weight: 500; z-index: 9999; opacity: 0; transition: opacity .2s; pointer-events: none; white-space: nowrap; }
 .toast.show { opacity: 1; }
 
+.pill { padding:5px 12px; border-radius:20px; border:1px solid var(--border); background:var(--bg1); font-size:12px; color:var(--text2); cursor:pointer; white-space:nowrap; transition:all .15s; }
+.pill.active { background:var(--primary); color:#fff; border-color:var(--primary); font-weight:500; }
 .divider { height: 0.5px; background: var(--border); margin: 1rem 0; }
 
 /* ── PIN CHANGE ── */
@@ -842,12 +844,22 @@ input[type="date"].modal-input { display: block; width: 100%; }
         <i class="ti ti-download" style="font-size:13px;vertical-align:-2px;"></i> CSV
       </button>
     </div>
+    <!-- 사람 필터 -->
     <div class="person-tabs">
-      <button class="ptab active" onclick="filterTx('전체',this)">전체</button>
-      <button class="ptab" onclick="filterTx('현우',this)">현우</button>
-      <button class="ptab" onclick="filterTx('민경',this)">민경</button>
-      <button class="ptab" onclick="filterTx('income',this)">수입</button>
-      <button class="ptab" onclick="filterTx('expense',this)">지출</button>
+      <button class="ptab active" onclick="setPersonFilter('전체',this)">전체</button>
+      <button class="ptab" id="ptab-name1" onclick="setPersonFilter(userName1,this)">현우</button>
+      <button class="ptab" id="ptab-name2" onclick="setPersonFilter(userName2,this)">민경</button>
+      <button class="ptab" onclick="setPersonFilter('income',this)">수입</button>
+      <button class="ptab" onclick="setPersonFilter('expense',this)">지출</button>
+    </div>
+    <!-- 카드 필터 (현우/민경 선택 시 표시) -->
+    <div id="card-filter-wrap" style="display:none;margin-bottom:8px;overflow-x:auto;-webkit-overflow-scrolling:touch;scrollbar-width:none;padding-bottom:2px;">
+      <div id="card-filter-pills" style="display:flex;gap:6px;width:max-content;"></div>
+    </div>
+    <!-- 카드 합계 -->
+    <div id="card-total-bar" style="display:none;background:var(--primary-pale);border-radius:var(--radius);padding:8px 12px;margin-bottom:8px;font-size:12px;color:#1B4D1C;display:none;">
+      <span id="card-total-label"></span>
+      <strong id="card-total-amt" style="float:right;"></strong>
     </div>
     <div class="card-block">
       <div class="card-block-header">
@@ -1955,11 +1967,52 @@ async function confirmAI() {
 }
 
 // ── TRANSACTIONS ──
-function filterTx(f, btn) {
+let cardFilter = '전체'; // 카드 필터 상태
+
+function setPersonFilter(f, btn) {
   txFilter = f;
+  cardFilter = '전체'; // 사람 바꾸면 카드 필터 초기화
   document.querySelectorAll('#tab-transactions .ptab').forEach(b => b.classList.remove('active'));
-  btn.classList.add('active');
+  if (btn) btn.classList.add('active');
+
+  // 현우/민경 선택 시 카드 필터 pill 표시
+  const cardWrap = document.getElementById('card-filter-wrap');
+  const pillWrap = document.getElementById('card-filter-pills');
+  const isPersonFilter = (f === userName1 || f === userName2);
+
+  if (isPersonFilter) {
+    // 해당 사람의 카드 목록 추출
+    const personCards = [...new Set(
+      txOfMonth(currentYear, currentMonth)
+        .filter(t => t.person === f && t.type === 'expense' && t.card)
+        .map(t => t.card)
+    )];
+
+    if (personCards.length > 0) {
+      pillWrap.innerHTML = `
+        <button class="pill active" onclick="setCardFilter('전체',this)">전체</button>
+        ${personCards.map(c => `<button class="pill" onclick="setCardFilter('${c}',this)">${c.replace(f,'').trim() || c}</button>`).join('')}
+      `;
+      cardWrap.style.display = 'block';
+    } else {
+      cardWrap.style.display = 'none';
+    }
+  } else {
+    cardWrap.style.display = 'none';
+  }
+
   renderTx();
+}
+
+function setCardFilter(card, btn) {
+  cardFilter = card;
+  document.querySelectorAll('#card-filter-pills .pill').forEach(b => b.classList.remove('active'));
+  if (btn) btn.classList.add('active');
+  renderTx();
+}
+
+function filterTx(f, btn) {
+  setPersonFilter(f, btn);
 }
 function renderTx() {
   const list = document.getElementById('tx-list');
@@ -1968,14 +2021,29 @@ function renderTx() {
   const searchQ = (searchEl?.value || '').trim().toLowerCase();
 
   const filtered = [...txOfMonth(currentYear, currentMonth)].filter(t => {
-    if (txFilter === '현우' || txFilter === '민경') if (t.person !== txFilter) return false;
+    if (txFilter === userName1 || txFilter === userName2) if (t.person !== txFilter) return false;
     if (txFilter === 'income' || txFilter === 'expense') if (t.type !== txFilter) return false;
+    // 카드 필터
+    if (cardFilter && cardFilter !== '전체') if (t.card !== cardFilter) return false;
     if (searchQ) {
       const hay = (t.desc + t.cat + t.card + t.person).toLowerCase();
       if (!hay.includes(searchQ)) return false;
     }
     return true;
   }).sort((a,b) => b.date.localeCompare(a.date));
+
+  // 카드 합계 표시
+  const totalBar = document.getElementById('card-total-bar');
+  if (cardFilter && cardFilter !== '전체') {
+    const total = filtered.filter(t=>t.type==='expense').reduce((a,t)=>a+t.amount,0);
+    if (totalBar) {
+      totalBar.style.display = 'block';
+      document.getElementById('card-total-label').textContent = cardFilter + ' 이번달 총 사용';
+      document.getElementById('card-total-amt').textContent = fmt(total);
+    }
+  } else {
+    if (totalBar) totalBar.style.display = 'none';
+  }
   if (!filtered.length) {
     list.innerHTML = '<div style="color:var(--text2);font-size:13px;padding:1rem 0;">거래 내역이 없어요</div>';
     const cnt = document.getElementById('tx-count');
@@ -2613,6 +2681,11 @@ function applyUserNames() {
   const p2 = document.getElementById('ptab2');
   if (p1) { p1.textContent = userName1; p1.onclick = () => selectPerson(userName1, p1); }
   if (p2) { p2.textContent = userName2; p2.onclick = () => selectPerson(userName2, p2); }
+  // 거래 내역 탭 이름 버튼
+  const pn1 = document.getElementById('ptab-name1');
+  const pn2 = document.getElementById('ptab-name2');
+  if (pn1) { pn1.textContent = userName1; pn1.onclick = (e) => setPersonFilter(userName1, pn1); }
+  if (pn2) { pn2.textContent = userName2; pn2.onclick = (e) => setPersonFilter(userName2, pn2); }
 }
 
 function editUserName(which) {
