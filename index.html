@@ -497,6 +497,17 @@ input[type="date"].modal-input { display: block; width: 100%; }
         <span class="cb-title"><i class="ti ti-wallet" style="font-size:13px;color:var(--primary);"></i>이번달 요약</span>
         <span style="font-size:11px;color:var(--text2);" id="dash-month-label"></span>
       </div>
+      <!-- 하루 예산 배너 -->
+      <div id="daily-budget-banner" style="display:none;margin:0 14px 0;padding:8px 12px;background:var(--primary-pale);border-radius:var(--radius);display:flex;justify-content:space-between;align-items:center;">
+        <div style="font-size:12px;color:#1B4D1C;">
+          <i class="ti ti-calendar-stats" style="font-size:12px;vertical-align:-1px;margin-right:4px;"></i>
+          오늘의 하루 예산
+        </div>
+        <div style="text-align:right;">
+          <span id="daily-budget-amt" style="font-size:15px;font-weight:700;color:var(--primary);"></span>
+          <span id="daily-budget-sub" style="font-size:10px;color:var(--text2);display:block;"></span>
+        </div>
+      </div>
       <div class="card-block-body" style="padding:10px 14px;">
         <div class="summary-grid">
           <div class="metric">
@@ -1388,13 +1399,49 @@ const catColors = {
 };
 function catColor(c) { return catColors[c] || '#888780'; }
 
-// catPlan은 수정 가능 — let으로 선언
-let catPlan = {
+// ── 월별 계획금액 (월별로 따로 저장) ──
+// 구조: { '2026-06': { 고정비: 329330, ... }, '2026-07': { ... } }
+let catPlanByMonth = {};
+
+// 기본 계획금액 (아무 달도 설정 안 됐을 때 사용)
+const catPlanDefault = {
   '고정비':329330,'대출 이자':264980,'저축':1490000,'공용식비':900000,
   '교통비':150000,'생활잡비':250000,'통신비':100000,
   '민경 용돈':150000,'현우 용돈':150000,'비상금':250000,
   '투자':30000,'추가 저축/자유':0,'카페':80000,'기타':0,'점심':500000,
 };
+
+// 하위 호환: catPlan은 현재 선택 월 계획 반환하는 Proxy 역할
+// 실제로는 getCatPlan() 함수를 사용
+function getCatPlan(y, m) {
+  const key = `${y}-${String(m).padStart(2,'0')}`;
+  // 해당 월 계획이 있으면 사용
+  if (catPlanByMonth[key]) return catPlanByMonth[key];
+  // 없으면 직전 달로 거슬러 올라가서 찾기
+  for (let i = 1; i <= 24; i++) {
+    let pm = m - i, py = y;
+    while (pm <= 0) { pm += 12; py--; }
+    const pkey = `${py}-${String(pm).padStart(2,'0')}`;
+    if (catPlanByMonth[pkey]) return catPlanByMonth[pkey];
+  }
+  // 아무것도 없으면 기본값
+  return { ...catPlanDefault };
+}
+
+function setCatPlan(y, m, cat, val) {
+  const key = `${y}-${String(m).padStart(2,'0')}`;
+  if (!catPlanByMonth[key]) {
+    // 이 달 계획이 없으면 직전 달 복사해서 시작
+    catPlanByMonth[key] = { ...getCatPlan(y, m) };
+  }
+  catPlanByMonth[key][cat] = val;
+}
+
+// 하위 호환용 — 현재 월 catPlan 객체
+let catPlan = new Proxy({}, {
+  get(_, cat) { return getCatPlan(currentYear, currentMonth)[cat]; },
+  set(_, cat, val) { setCatPlan(currentYear, currentMonth, cat, val); return true; }
+});
 
 // 지출항목 순서 (구글시트 기준)
 let budgetOrder = ['고정비','대출 이자','저축','공용식비','교통비','생활잡비','통신비','민경 용돈','현우 용돈','비상금','투자','추가 저축/자유','카페','기타','점심'];
@@ -1527,7 +1574,7 @@ function renderDashboard() {
   document.getElementById('d-balance').textContent = fmt(balance);
 
   // 4. 수입 delta = 이번달 수입 건수, 지출 delta = 계획 합계
-  const totalPlan = Object.values(catPlan).reduce((a,b) => a+b, 0);
+  const totalPlan = Object.values(getCatPlan(currentYear, currentMonth)).reduce((a,b) => a+b, 0);
   const incCount = monthTx.filter(t => t.type==='income').length;
   const incDeltaEl = document.getElementById('d-income-delta');
   if (incDeltaEl) incDeltaEl.textContent = incCount > 0 ? `${incCount}건 수입` : '수입 없음';
@@ -1601,7 +1648,44 @@ function renderDashboard() {
   }, 50);
   renderMonthlyReport();
 
-  // 카드별 사용 현황
+  // ── 하루 예산 계산 ──
+  const today = new Date();
+  const isCurrentMonth = (currentYear === today.getFullYear() && currentMonth === today.getMonth() + 1);
+  const banner = document.getElementById('daily-budget-banner');
+
+  if (isCurrentMonth) {
+    const planObj = getCatPlan(currentYear, currentMonth);
+    const totalPlanAmt = Object.values(planObj).reduce((a,b) => a+b, 0);
+    // 저축 제외한 지출 계획
+    const spendPlan = totalPlanAmt - (planObj['저축'] || 0);
+    // 이번달 남은 일수
+    const lastDay = new Date(currentYear, currentMonth, 0).getDate();
+    const todayDate = today.getDate();
+    const remainDays = lastDay - todayDate + 1;
+    // 남은 지출 예산
+    const spentSoFar = monthTx.filter(t => t.type==='expense' && t.cat !== '저축').reduce((a,t) => a+t.amount, 0);
+    const remainBudget = spendPlan - spentSoFar;
+    const dailyBudget = remainDays > 0 ? Math.round(remainBudget / remainDays) : 0;
+
+    if (banner && spendPlan > 0) {
+      banner.style.display = 'flex';
+      const amtEl = document.getElementById('daily-budget-amt');
+      const subEl = document.getElementById('daily-budget-sub');
+      if (dailyBudget >= 0) {
+        amtEl.textContent = fmt(dailyBudget);
+        amtEl.style.color = 'var(--primary)';
+        banner.style.background = 'var(--primary-pale)';
+        subEl.textContent = `남은 ${remainDays}일 · 남은 예산 ${fmt(remainBudget)}`;
+      } else {
+        amtEl.textContent = '예산 초과';
+        amtEl.style.color = 'var(--danger)';
+        banner.style.background = 'var(--danger-light)';
+        subEl.textContent = `${fmt(-remainBudget)} 초과 · ${remainDays}일 남음`;
+      }
+    }
+  } else {
+    if (banner) banner.style.display = 'none';
+  }
   const cardUsageEl = document.getElementById('card-usage-list');
   if (cardUsageEl) {
     const cardUsage = {};
@@ -2307,7 +2391,7 @@ const STORAGE_KEY = 'duet_data_v1';
 function saveData() {
   try {
     localStorage.setItem(STORAGE_KEY, JSON.stringify({
-      transactions, catPlan, budgetOrder, expCats, incCats, cards,
+      transactions, catPlanByMonth, budgetOrder, expCats, incCats, cards,
       assetItemsSaved: assetItems, currentYear, currentMonth,
       correctPin: CORRECT_PIN, initBalance,
       userName1, userName2, totalAssetOffset, recurringList
@@ -2320,8 +2404,13 @@ function loadData() {
     if (!raw) return;
     const d = JSON.parse(raw);
     if (d.transactions) transactions.splice(0, transactions.length, ...d.transactions);
-    if (d.catPlan) Object.assign(catPlan, d.catPlan);
+    if (d.catPlanByMonth) Object.assign(catPlanByMonth, d.catPlanByMonth);
+    else if (d.catPlan) {
+      const key = `${new Date().getFullYear()}-${String(new Date().getMonth()+1).padStart(2,'0')}`;
+      catPlanByMonth[key] = { ...d.catPlan };
+    }
     if (d.budgetOrder) budgetOrder.splice(0, budgetOrder.length, ...d.budgetOrder);
+    if (d.expCats) expCats.splice(0, expCats.length, ...d.expCats);
     if (d.expCats) expCats.splice(0, expCats.length, ...d.expCats);
     if (d.incCats) incCats.splice(0, incCats.length, ...d.incCats);
     if (d.cards) cards.splice(0, cards.length, ...d.cards);
@@ -2352,8 +2441,9 @@ function calcCurAmts() {
 
 function renderBudget() {
   const cur = calcCurAmts();
+  const planObj = getCatPlan(currentYear, currentMonth);
 
-  const totalPlan = Object.values(catPlan).reduce((a,b) => a+b, 0);
+  const totalPlan = Object.values(planObj).reduce((a,b) => a+b, 0);
   const totalCur = budgetOrder.reduce((a, cat) => a + (cur[cat]||0), 0);
   const totalRem = totalPlan - totalCur;
   const remEl = document.getElementById('bm-rem');
@@ -2365,7 +2455,7 @@ function renderBudget() {
 
   // 바 최대값 — 계획과 현재 중 큰 값 기준
   const allVals = [
-    ...budgetOrder.map(c => catPlan[c] || 0),
+    ...budgetOrder.map(c => planObj[c] || 0),
     ...budgetOrder.map(c => cur[c] || 0),
   ].filter(v => v > 0);
   const maxVal = Math.max(...allVals, 1);
@@ -2374,7 +2464,7 @@ function renderBudget() {
   body.innerHTML = '';
 
   budgetOrder.forEach(cat => {
-    const plan = catPlan[cat] || 0;
+    const plan = planObj[cat] || 0;
     const used = cur[cat] || 0;
     const rem = plan - used;
     const over = plan > 0 && used > plan;
@@ -2501,12 +2591,14 @@ function budgetInlineEnd(inp, cat) {
   const wrap = inp.closest('.plan-val-wrap');
   const span = wrap.querySelector('.plan-clickable');
   const val = parseInt(inp.value) || 0;
-  catPlan[cat] = val;
+  setCatPlan(currentYear, currentMonth, cat, val);
   if (!budgetOrder.includes(cat)) budgetOrder.push(cat);
   inp.style.display = 'none';
   span.style.display = '';
-  saveData(); renderBudget();
-  toast('✓ ' + cat + ' 계획 금액 저장됐어요');
+  saveData();
+  if (coupleId) syncSettingsUp();
+  renderBudget();
+  toast('✓ ' + cat + ' ' + currentYear + '년 ' + currentMonth + '월 계획 저장됐어요');
 }
 function budgetInlineCancel(inp) {
   const wrap = inp.closest('.plan-val-wrap');
@@ -2516,7 +2608,7 @@ function budgetInlineCancel(inp) {
 }
 
 // 항목 추가
-function budgetAdd() {
+async function budgetAdd() {
   const nameEl = document.getElementById('b-new-name');
   const planEl = document.getElementById('b-new-plan');
   const name = nameEl.value.trim();
@@ -2524,12 +2616,15 @@ function budgetAdd() {
   if (!name) { nameEl.focus(); toast('항목 이름을 입력해주세요'); return; }
   if (budgetOrder.includes(name)) { toast('"' + name + '" 항목이 이미 있어요'); return; }
   budgetOrder.push(name);
-  catPlan[name] = plan;
+  setCatPlan(currentYear, currentMonth, name, plan);
   if (!expCats.includes(name)) expCats.push(name);
   nameEl.value = ''; planEl.value = '';
-  saveData(); renderBudget();
+  saveData();
+  renderBudget();
   renderChips('exp');
   toast('✓ "' + name + '" 항목이 추가됐어요');
+  // Supabase 즉시 동기화
+  if (coupleId) await syncSettingsUp();
 }
 document.addEventListener('DOMContentLoaded', () => {
   const n = document.getElementById('b-new-name');
@@ -2545,7 +2640,7 @@ function budgetModalOpen(cat) {
   document.getElementById('b-modal-dot').style.background = catColor(cat);
   document.getElementById('b-modal-title').textContent = cat + ' 수정';
   document.getElementById('b-modal-name').value = cat;
-  document.getElementById('b-modal-plan').value = catPlan[cat] || 0;
+  document.getElementById('b-modal-plan').value = getCatPlan(currentYear, currentMonth)[cat] || 0;
   document.getElementById('b-modal').classList.add('open');
   document.getElementById('b-modal-plan').focus();
 }
@@ -2563,17 +2658,23 @@ function budgetModalSave() {
     if (idx >= 0) budgetOrder[idx] = newName;
     const ei = expCats.indexOf(_budgetEditCat);
     if (ei >= 0) expCats[ei] = newName;
-    catPlan[newName] = newPlan;
     catColors[newName] = catColors[_budgetEditCat] || '#888780';
-    delete catPlan[_budgetEditCat];
+    // 모든 월의 계획에서 이름 변경
+    Object.keys(catPlanByMonth).forEach(k => {
+      if (catPlanByMonth[k][_budgetEditCat] !== undefined) {
+        catPlanByMonth[k][newName] = catPlanByMonth[k][_budgetEditCat];
+        delete catPlanByMonth[k][_budgetEditCat];
+      }
+    });
+    setCatPlan(currentYear, currentMonth, newName, newPlan);
   } else {
-    catPlan[_budgetEditCat] = newPlan;
+    setCatPlan(currentYear, currentMonth, _budgetEditCat, newPlan);
   }
   budgetModalClose();
   saveData(); if (coupleId) syncSettingsUp();
   renderBudget();
   renderChips('exp');
-  toast('✓ ' + newName + ' 수정됐어요');
+  toast('✓ ' + newName + ' ' + currentYear + '년 ' + currentMonth + '월 계획 수정됐어요');
 }
 function budgetDelete() {
   if (!_budgetEditCat) return;
@@ -2585,7 +2686,8 @@ function budgetDelete() {
       if (idx >= 0) budgetOrder.splice(idx, 1);
       const ei = expCats.indexOf(cat);
       if (ei >= 0) expCats.splice(ei, 1);
-      delete catPlan[cat];
+      // 모든 월에서 삭제
+      Object.keys(catPlanByMonth).forEach(k => delete catPlanByMonth[k][cat]);
       saveData(); if (coupleId) syncSettingsUp();
       renderBudget();
       renderChips('exp');
@@ -3585,7 +3687,7 @@ async function syncTransactionsDown() {
 async function syncSettingsUp() {
   if (!coupleId) return;
   try {
-    const settings = { catPlan, budgetOrder, expCats, incCats, cards,
+    const settings = { catPlanByMonth, budgetOrder, expCats, incCats, cards,
       assetItems, userName1, userName2, initBalance, totalAssetOffset };
     await supa.from('couple_settings').upsert({
       couple_id: coupleId, settings, updated_at: new Date().toISOString()
@@ -3601,9 +3703,23 @@ async function syncSettingsDown() {
       .select('settings').eq('couple_id', coupleId).single();
     if (error || !data) return;
     const s = data.settings;
-    if (s.catPlan) Object.assign(catPlan, s.catPlan);
-    if (s.budgetOrder) budgetOrder.splice(0, budgetOrder.length, ...s.budgetOrder);
-    if (s.expCats) expCats.splice(0, expCats.length, ...s.expCats);
+    if (s.catPlanByMonth) Object.assign(catPlanByMonth, s.catPlanByMonth);
+    else if (s.catPlan) {
+      const key = `${new Date().getFullYear()}-${String(new Date().getMonth()+1).padStart(2,'0')}`;
+      catPlanByMonth[key] = { ...s.catPlan };
+    }
+    if (s.budgetOrder) {
+      // 서버에 없는 로컬 항목은 유지하면서 서버 순서 기준으로 병합
+      const merged = [...s.budgetOrder];
+      budgetOrder.forEach(item => { if (!merged.includes(item)) merged.push(item); });
+      budgetOrder.splice(0, budgetOrder.length, ...merged);
+    }
+    if (s.expCats) {
+      // expCats도 병합
+      const merged = [...s.expCats];
+      expCats.forEach(item => { if (!merged.includes(item)) merged.push(item); });
+      expCats.splice(0, expCats.length, ...merged);
+    }
     if (s.incCats) incCats.splice(0, incCats.length, ...s.incCats);
     if (s.cards) cards.splice(0, cards.length, ...s.cards);
     if (s.assetItems) assetItems.splice(0, assetItems.length, ...s.assetItems);
