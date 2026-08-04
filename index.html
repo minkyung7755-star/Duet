@@ -1204,6 +1204,11 @@ input[type="date"].modal-input { display: block; width: 100%; }
       <div style="font-size:11px;color:var(--text2);margin-top:4px;">거래 입력과 별개로 이미 쌓인 금액을 직접 입력하세요</div>
     </div>
     <div class="modal-field">
+      <div class="modal-label">자산에서 인출한 금액 (₩)</div>
+      <input class="modal-input" type="number" id="asset-modal-withdraw" placeholder="0">
+      <div style="font-size:11px;color:var(--text2);margin-top:4px;">경조사비·여행 등 자산에서 뽑아 쓴 금액 — 예산에서 안 빠져요</div>
+    </div>
+    <div class="modal-field">
       <div class="modal-label">담당자</div>
       <select class="modal-input" id="asset-modal-owner"></select>
     </div>
@@ -2200,9 +2205,10 @@ function renderAssets() {
 
     // 수동 입력 누적
     const manualAmt = a.manualTotal || 0;
+    const withdrawAmt = a.withdraw || 0;
 
-    // 합산 표시
-    const displayAcc = txAcc + manualAmt;
+    // 합산: 거래 기반 + 수동 입력 - 인출
+    const displayAcc = Math.max(0, txAcc + manualAmt - withdrawAmt);
 
     // 이번달 거래 (띄어쓰기 무시 매칭)
     const monthAcc = monthSavingTx
@@ -2231,6 +2237,7 @@ function renderAssets() {
           <div class="asset-total">${displayAcc > 0 ? fmt(displayAcc) : '—'}</div>
           <div style="font-size:10px;margin-top:2px;display:flex;gap:6px;justify-content:flex-end;align-items:center;">
             ${displayAcc > 0 && displayTotal > 0 ? `<span style="color:var(--primary);font-weight:600;">전체의 ${pctOfTotal}%</span>` : ''}
+            ${withdrawAmt > 0 ? `<span style="color:var(--danger);">인출 ${fmt(withdrawAmt)}</span>` : ''}
             ${monthAcc > 0
               ? `<span style="color:var(--text2);">이번달 +${fmt(monthAcc)}</span>`
               : '<span style="color:var(--text2);">이번달 없음</span>'}
@@ -2895,6 +2902,7 @@ function openAssetAddModal() {
   document.getElementById('asset-modal-title').textContent = '저축 항목 추가';
   document.getElementById('asset-modal-name').value = '';
   document.getElementById('asset-modal-manual').value = '';
+  document.getElementById('asset-modal-withdraw').value = '';
   document.getElementById('asset-modal-del-btn').style.display = 'none';
   const ownerSel = document.getElementById('asset-modal-owner');
   ownerSel.innerHTML = [userName1, userName2, '공통'].map(n => `<option>${n}</option>`).join('');
@@ -2908,6 +2916,7 @@ function editAssetItem(idx) {
   document.getElementById('asset-modal-title').textContent = '저축 항목 수정';
   document.getElementById('asset-modal-name').value = a.name;
   document.getElementById('asset-modal-manual').value = a.manualTotal || 0;
+  document.getElementById('asset-modal-withdraw').value = a.withdraw || 0;
   document.getElementById('asset-modal-del-btn').style.display = '';
   const ownerSel = document.getElementById('asset-modal-owner');
   ownerSel.innerHTML = [userName1, userName2, '공통'].map(n =>
@@ -2924,19 +2933,21 @@ function closeAssetModal() {
 function saveAssetModal() {
   const name = document.getElementById('asset-modal-name').value.trim();
   const manualTotal = parseInt(document.getElementById('asset-modal-manual').value) || 0;
+  const withdraw = parseInt(document.getElementById('asset-modal-withdraw').value) || 0;
   const owner = document.getElementById('asset-modal-owner').value;
   if (!name) { toast('항목 이름을 입력해주세요'); return; }
   const colors = ['#2C5F2E','#639922','#378ADD','#1D9E75','#D4537E','#534AB7','#BA7517','#888780'];
   if (_assetEditIdx >= 0) {
     assetItems[_assetEditIdx].name = name;
     assetItems[_assetEditIdx].manualTotal = manualTotal;
+    assetItems[_assetEditIdx].withdraw = withdraw;
     assetItems[_assetEditIdx].owner = owner;
   } else {
-    assetItems.push({ name, color: colors[assetItems.length % colors.length], owner, manualTotal });
+    assetItems.push({ name, color: colors[assetItems.length % colors.length], owner, manualTotal, withdraw: withdraw });
   }
   closeAssetModal();
   saveData();
-  if (coupleId) syncSettingsUp(); // Supabase 동기화
+  if (coupleId) syncSettingsUp();
   renderAssets();
   toast(`✓ "${name}" 항목이 ${_assetEditIdx >= 0 ? '수정' : '추가'}됐어요`);
 }
@@ -3375,7 +3386,7 @@ function closeRecurringModal() {
   document.getElementById('recurring-modal').classList.remove('open');
   _recEditIdx = -1;
 }
-function saveRecurring() {
+async function saveRecurring() {
   const desc = document.getElementById('rec-desc').value.trim();
   const amount = parseInt(document.getElementById('rec-amount').value)||0;
   const day = parseInt(document.getElementById('rec-day').value)||1;
@@ -3388,6 +3399,7 @@ function saveRecurring() {
   else recurringList.push(item);
   closeRecurringModal();
   saveData();
+  if (coupleId) await syncSettingsUp();
   renderRecurringList();
   toast('✓ 반복 거래가 저장됐어요');
 }
