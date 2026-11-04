@@ -3410,6 +3410,7 @@ function deleteRecurring() {
     recurringList.splice(_recEditIdx, 1);
     closeRecurringModal();
     saveData();
+    if (coupleId) syncSettingsUp();
     renderRecurringList();
     toast(name+' 반복 거래가 삭제됐어요');
   });
@@ -3420,7 +3421,7 @@ function applyRecurring() {
   let added = 0;
   recurringList.forEach(r => {
     const date = `${currentYear}-${String(currentMonth).padStart(2,'0')}-${String(r.day).padStart(2,'0')}`;
-    const already = transactions.find(t => t.date===date && t.desc===r.desc && t.amount===r.amount);
+    const already = transactions.find(t => t.date.slice(0,7)===date.slice(0,7) && t.desc===r.desc && t.amount===r.amount);
     if (!already) {
       const tx = {date,amount:r.amount,desc:r.desc,cat:r.cat,card:'기타(계좌이체)',person:r.person,type:r.type};
       transactions.push(tx);
@@ -3700,7 +3701,7 @@ async function syncSettingsUp() {
   if (!coupleId) return;
   try {
     const settings = { catPlanByMonth, budgetOrder, expCats, incCats, cards,
-      assetItems, userName1, userName2, initBalance, totalAssetOffset };
+      assetItems, userName1, userName2, initBalance, totalAssetOffset, recurringList };
     await supa.from('couple_settings').upsert({
       couple_id: coupleId, settings, updated_at: new Date().toISOString()
     }, { onConflict: 'couple_id' });
@@ -3739,6 +3740,12 @@ async function syncSettingsDown() {
     if (s.userName2) userName2 = s.userName2;
     if (s.initBalance !== undefined) initBalance = s.initBalance;
     if (s.totalAssetOffset !== undefined) totalAssetOffset = s.totalAssetOffset;
+    if (Array.isArray(s.recurringList)) {
+      const merged = [...s.recurringList];
+      recurringList.forEach(r => { if (!merged.some(m => m.desc===r.desc && m.day===r.day)) merged.push(r); });
+      recurringList.splice(0, recurringList.length, ...merged);
+      if (merged.length > s.recurringList.length) syncSettingsUp();
+    }
     saveData();
   } catch(e) { console.warn('settings down 실패:', e); }
 }
