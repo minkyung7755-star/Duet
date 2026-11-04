@@ -1496,6 +1496,7 @@ let assetItems = [
   {name:'민경 주택청약',  color:'#378ADD', owner:'민경', manualTotal:0},
   {name:'토스 투자',      color:'#1D9E75', owner:'공통', manualTotal:0},
 ];
+let recurringList = [];
 let totalAssetOffset = 0; // 총 누적자산 수동 조정값
 
 // ── HELPERS ──
@@ -3333,7 +3334,6 @@ function exportCSV() {
 }
 
 // ── 반복 거래 ──
-let recurringList = [];
 let _recEditIdx = -1;
 
 function renderRecurringList() {
