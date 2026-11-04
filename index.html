@@ -2275,26 +2275,26 @@ function renderAssets() {
     monthlyMap[ym] = (monthlyMap[ym] || 0) + t.amount;
   });
 
-  // 정렬된 월 목록
-  const sortedMonths = Object.keys(monthlyMap).sort();
+  // 선택한 월까지만 표시 (선택 월은 저축이 없어도 포함)
+  const selYM = `${currentYear}-${String(currentMonth).padStart(2,'0')}`;
+  const monthSet = new Set(Object.keys(monthlyMap).filter(ym => ym <= selYM));
+  monthSet.add(selYM);
+  const sortedMonths = [...monthSet].sort().slice(-12);
 
-  // 누적값 계산
+  // 선택 월 이전 누적 (표시 구간 이전 분 포함)
   let cumulative = 0;
+  Object.keys(monthlyMap).filter(ym => ym < sortedMonths[0]).forEach(ym => { cumulative += monthlyMap[ym]; });
   const chartLabels = [];
   const chartData = [];
   sortedMonths.forEach(ym => {
-    cumulative += monthlyMap[ym];
+    cumulative += (monthlyMap[ym] || 0);
     const [y, m] = ym.split('-');
-    chartLabels.push(`${parseInt(m)}월`);
+    chartLabels.push(`${String(y).slice(2)}.${parseInt(m)}월`);
     chartData.push(cumulative);
   });
 
-  // totalAssetOffset 반영
-  const chartDataWithOffset = chartData.map(v => v + totalAssetOffset);
-  // 마지막 값 = displayTotal
-  if (chartDataWithOffset.length > 0) {
-    chartDataWithOffset[chartDataWithOffset.length - 1] = displayTotal;
-  }
+  // 수동 입력/조정값은 모든 시점에 더함
+  const chartDataWithOffset = chartData.map(v => v + totalManual + totalAssetOffset);
 
   if (_assetChart) { _assetChart.destroy(); _assetChart = null; }
 
