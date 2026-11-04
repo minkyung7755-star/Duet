@@ -912,6 +912,7 @@ input[type="date"].modal-input { display: block; width: 100%; }
         <div class="chart-wrap" style="height:180px;margin-bottom:0;">
           <canvas id="assetChart" role="img" aria-label="월별 자산 누적 추이">누적 자산 차트</canvas>
         </div>
+        <div id="asset-delta" style="margin-top:10px;"></div>
       </div>
     </div>
 
@@ -2172,7 +2173,8 @@ function renderAssets() {
   const saving = txOfMonth(currentYear, currentMonth)
     .filter(t => t.type==='expense' && t.cat==='저축')
     .reduce((a,t) => a+t.amount, 0);
-  const allSavingTx = transactions.filter(t => t.type==='expense' && t.cat==='저축');
+  const _selYM = `${currentYear}-${String(currentMonth).padStart(2,'0')}`;
+  const allSavingTx = transactions.filter(t => t.type==='expense' && t.cat==='저축' && t.date.slice(0,7) <= _selYM);
   const totalSaving = allSavingTx.reduce((a,t) => a+t.amount, 0);
   const savingByPerson = {};
   allSavingTx.forEach(t => { savingByPerson[t.person] = (savingByPerson[t.person]||0) + t.amount; });
@@ -2295,6 +2297,19 @@ function renderAssets() {
 
   // 수동 입력/조정값은 모든 시점에 더함
   const chartDataWithOffset = chartData.map(v => v + totalManual + totalAssetOffset);
+
+  const deltaEl = document.getElementById('asset-delta');
+  if (deltaEl) {
+    const rows = [];
+    for (let i = chartData.length - 1; i >= 0; i--) {
+      const prev = i > 0 ? chartData[i-1] : (chartData[0] - (monthlyMap[sortedMonths[0]] || 0));
+      const d = chartData[i] - prev;
+      rows.push(`<div style="display:flex;justify-content:space-between;font-size:12px;padding:5px 0;border-bottom:0.5px solid var(--border);">
+        <span style="color:var(--text2);">${chartLabels[i]}</span>
+        <span><span style="color:var(--text2);margin-right:8px;">${fmt(chartData[i] + totalManual + totalAssetOffset)}</span><b style="color:${d>0?'var(--primary)':'var(--text2)'};">${d>0?'+':''}${fmt(d)}</b></span></div>`);
+    }
+    deltaEl.innerHTML = '<div style="font-size:11px;color:var(--text2);margin-bottom:2px;">전월 대비 증가</div>' + rows.join('');
+  }
 
   if (_assetChart) { _assetChart.destroy(); _assetChart = null; }
 
