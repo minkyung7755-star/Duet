@@ -891,10 +891,10 @@ input[type="date"].modal-input { display: block; width: 100%; }
       </div>
       <div class="card-block-body" style="padding:10px 14px;">
         <div class="summary-grid" style="grid-template-columns:repeat(2,1fr);margin-bottom:0;">
-          <div class="metric" style="cursor:pointer;" onclick="openTotalAssetModal()" title="탭하여 수정">
-            <div class="label">총 누적 자산 <i class="ti ti-pencil" style="font-size:10px;vertical-align:0;"></i></div>
+          <div class="metric">
+            <div class="label">총 누적 자산</div>
             <div class="value green" id="a-total">—</div>
-            <div class="delta" style="font-size:10px;color:var(--text2);">탭하여 수정</div>
+            <div class="delta" style="font-size:10px;color:var(--text2);">항목별 누적 합계</div>
           </div>
           <div class="metric">
             <div class="label">이번달 저축</div>
@@ -2183,9 +2183,16 @@ function renderAssets() {
   const monthSavingTx = txOfMonth(currentYear, currentMonth)
     .filter(t => t.type==='expense' && t.cat==='저축');
 
-  // 총 누적 = 거래 기반 저축 합 + 각 항목 수동 입력 합 + 수동 조정값
-  const totalManual = assetItems.reduce((a, item) => a + (item.manualTotal || 0), 0);
-  const displayTotal = totalSaving + totalManual + totalAssetOffset;
+  // 총 누적 = 저축 항목별 누적금액의 합계
+  const _norm = str => String(str||'').replace(/\s/g,'').toLowerCase();
+  const accAt = (ym) => assetItems.reduce((sum, it) => {
+    const n = _norm(it.name);
+    const tx = transactions.filter(t => t.type==='expense' && t.cat==='저축' && t.date.slice(0,7) <= ym
+      && t.desc && _norm(t.desc).includes(n)).reduce((a,t) => a+t.amount, 0);
+    return sum + Math.max(0, tx + (it.manualTotal||0) - (it.withdraw||0));
+  }, 0);
+  const displayTotal = accAt(_selYM);
+  const totalManual = 0, _unused = 0;
   document.getElementById('a-total').textContent = fmt(displayTotal);
   document.getElementById('a-month').textContent = fmt(saving);
 
@@ -2278,35 +2285,29 @@ function renderAssets() {
   });
 
   // 선택한 월까지만 표시 (선택 월은 저축이 없어도 포함)
-  const selYM = `${currentYear}-${String(currentMonth).padStart(2,'0')}`;
-  const monthSet = new Set(Object.keys(monthlyMap).filter(ym => ym <= selYM));
-  monthSet.add(selYM);
+  const monthSet = new Set(Object.keys(monthlyMap).filter(ym => ym <= _selYM));
+  monthSet.add(_selYM);
   const sortedMonths = [...monthSet].sort().slice(-12);
-
-  // 선택 월 이전 누적 (표시 구간 이전 분 포함)
-  let cumulative = 0;
-  Object.keys(monthlyMap).filter(ym => ym < sortedMonths[0]).forEach(ym => { cumulative += monthlyMap[ym]; });
   const chartLabels = [];
   const chartData = [];
+  const prevYM = (ym) => { let [y,m] = ym.split('-').map(Number); m--; if (m===0){m=12;y--;} return `${y}-${String(m).padStart(2,'0')}`; };
+  const baseBefore = accAt(prevYM(sortedMonths[0]));
   sortedMonths.forEach(ym => {
-    cumulative += (monthlyMap[ym] || 0);
     const [y, m] = ym.split('-');
     chartLabels.push(`${String(y).slice(2)}.${parseInt(m)}월`);
-    chartData.push(cumulative);
+    chartData.push(accAt(ym));
   });
-
-  // 수동 입력/조정값은 모든 시점에 더함
-  const chartDataWithOffset = chartData.map(v => v + totalManual + totalAssetOffset);
+  const chartDataWithOffset = chartData;
 
   const deltaEl = document.getElementById('asset-delta');
   if (deltaEl) {
     const rows = [];
     for (let i = chartData.length - 1; i >= 0; i--) {
-      const prev = i > 0 ? chartData[i-1] : (chartData[0] - (monthlyMap[sortedMonths[0]] || 0));
+      const prev = i > 0 ? chartData[i-1] : baseBefore;
       const d = chartData[i] - prev;
       rows.push(`<div style="display:flex;justify-content:space-between;font-size:12px;padding:5px 0;border-bottom:0.5px solid var(--border);">
         <span style="color:var(--text2);">${chartLabels[i]}</span>
-        <span><span style="color:var(--text2);margin-right:8px;">${fmt(chartData[i] + totalManual + totalAssetOffset)}</span><b style="color:${d>0?'var(--primary)':'var(--text2)'};">${d>0?'+':''}${fmt(d)}</b></span></div>`);
+        <span><span style="color:var(--text2);margin-right:8px;">${fmt(chartData[i])}</span><b style="color:${d>0?'var(--primary)':'var(--text2)'};">${d>0?'+':''}${fmt(d)}</b></span></div>`);
     }
     deltaEl.innerHTML = '<div style="font-size:11px;color:var(--text2);margin-bottom:2px;">전월 대비 증가</div>' + rows.join('');
   }
